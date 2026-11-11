@@ -22,61 +22,49 @@ const path = require('path');
 
   const page = await context.newPage();
 
-  console.log('1. Cargando la web de R.I.T...');
+  console.log('1. Cargando ritstore.agency...');
   await page.goto('https://www.ritstore.agency/es/event-details/sui-visual-kei-lights-lima', {
     waitUntil: 'domcontentloaded',
     timeout: 45000
   });
 
-  console.log('2. Bajando hacia el botón de entradas...');
-  const buyBtn = page.getByRole('button', { name: /compra tus entradas/i })
-    .or(page.locator('a, button').filter({ hasText: /compra tus entradas/i })).first();
-
-  // Scroll explícito hacia el botón para garantizar que esté dentro de la vista
+  console.log('2. Clickeando "Compra tus entradas"...');
+  const buyBtn = page.locator('text=/compra tus entradas/i').first();
   await buyBtn.scrollIntoViewIfNeeded();
   await page.waitForTimeout(1000);
   await buyBtn.click({ force: true });
-  console.log('-> Clic en "Compra tus entradas" ejecutado.');
 
-  console.log('3. Esperando que el modal abra y renderice la sala...');
-  // Esperar a que el modal aparezca en el DOM
-  const modalLocator = page.locator('div[role="dialog"], [aria-modal="true"]').first();
-  await modalLocator.waitFor({ state: 'visible', timeout: 20000 });
+  console.log('3. Esperando que Wix cargue los asientos...');
+  await page.waitForTimeout(7000);
 
-  // Margen de 6 segundos para que los microservicios de Wix dibujen los círculos
-  await page.waitForTimeout(6000);
-
-  console.log('4. Ocultando columna izquierda y botones en BRL...');
+  console.log('4. Ocultando panel lateral de compras...');
   await page.addStyleTag({
     content: `
       [data-hook="tickets-picker"],
       aside,
       [data-hook="checkout"],
-      [data-hook="invoice-breakdown"],
-      div[role="dialog"] > div:first-child:not(:last-child) {
-        display: none !important;
-      }
-      button:has-text("precios"),
-      button[aria-haspopup="listbox"],
-      [data-hook="dropdown-base-text"] {
+      [data-hook="invoice-breakdown"] {
         display: none !important;
       }
     `
   });
 
-  console.log('5. Capturando el plano del mapa...');
-  // Priorizar el lienzo del mapa dentro del diálogo
-  const seatingGrid = modalLocator.locator('div:has(> canvas), div:has(> svg)').first();
+  console.log('5. Tomando captura...');
+  // Buscar el lienzo interactivo del mapa (canvas o SVG)
+  const seatingGrid = page.locator('canvas, svg').filter({ has: page.locator('circle, path') }).first();
 
   if (await seatingGrid.count() > 0 && await seatingGrid.isVisible()) {
     await seatingGrid.screenshot({ path: outputPath });
-    console.log(`-> Éxito: Cuadrícula del mapa capturada en ${outputPath}`);
+    console.log(`-> Cuadrícula recortada guardada en ${outputPath}`);
   } else {
-    // Si no aísla el SVG, captura el modal completo ya sin la columna izquierda
-    await modalLocator.screenshot({ path: outputPath });
-    console.log(`-> Éxito: Modal limpio capturado en ${outputPath}`);
+    // Si Wix agrupó el SVG dentro de un contenedor, recorta el área central de la pantalla
+    console.log('-> Tomando captura de la zona central de la sala...');
+    await page.screenshot({
+      path: outputPath,
+      clip: { x: 300, y: 150, width: 900, height: 600 }
+    });
   }
 
   await browser.close();
-  console.log('Finalizado.');
+  console.log('Proceso completado.');
 })();
