@@ -1,0 +1,38 @@
+name: Snapshot Mapa SUI Miraflores
+
+on:
+  schedule:
+    # Corre automáticamente 3 veces al día (11:00 AM, 4:00 PM y 9:00 PM hora Lima / UTC-5)
+    - cron: '0 16,21,2 * * *'
+  workflow_dispatch: # Permite presionar "Run workflow" manualmente para testear en cualquier momento
+
+jobs:
+  take-snapshot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Permiso para guardar la imagen en el repo
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Playwright y Chromium
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Ejecutar captura del mapa
+        run: node capture-map.js
+
+      - name: Guardar y subir imagen al repositorio
+        run: |
+          git config --global user.name "Kaizen Systems Bot"
+          git config --global user.email "sistemas@kaizenlive.pe"
+          git add events/sui-mapa.png
+          git commit -m "Auto: actualización de butacas SUI [skip ci]" || exit 0
+          git push
