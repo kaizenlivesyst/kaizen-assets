@@ -11,7 +11,7 @@ const path = require('path');
 
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   });
 
   const context = await browser.newContext({
@@ -22,49 +22,53 @@ const path = require('path');
 
   const page = await context.newPage();
 
-  console.log('1. Cargando ritstore.agency...');
-  await page.goto('https://www.ritstore.agency/es/event-details/sui-visual-kei-lights-lima', {
-    waitUntil: 'domcontentloaded',
-    timeout: 45000
-  });
+  try {
+    console.log('1. Cargando ritstore.agency...');
+    await page.goto('https://www.ritstore.agency/es/event-details/sui-visual-kei-lights-lima', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
 
-  console.log('2. Abriendo modal de butacas...');
-  const buyBtn = page.locator('text=/compra tus entradas/i').first();
-  await buyBtn.waitFor({ state: 'visible', timeout: 30000 });
-  await buyBtn.click();
+    console.log('2. Buscando y clickeando botón de entradas...');
+    // Clic forzado en cualquier botón o enlace que diga "entradas" o "Compra"
+    const btn = page.locator('button, a').filter({ hasText: /entradas|compra/i }).first();
+    await btn.waitFor({ state: 'visible', timeout: 15000 });
+    await btn.click({ force: true });
 
-  // Espera a que Wix dibuje la cuadrícula
-  await page.waitForTimeout(6000);
+    // Tiempo prudente para que Wix abra el popup y pinte las butacas
+    console.log('3. Esperando renderizado de la sala...');
+    await page.waitForTimeout(7000);
 
-  console.log('3. Limpiando interfaz...');
-  await page.evaluate(() => {
-    // Inyección de estilos limpia y 100% estándar de CSS
-    const sheet = document.createElement('style');
-    sheet.innerHTML = `
-      [data-hook="tickets-picker"], 
-      aside, 
-      [data-hook="checkout"],
-      [data-hook="invoice-breakdown"],
-      div[role="dialog"] > div:first-child:not(:last-child) { 
-        display: none !important; 
-      }
-    `;
-    document.head.appendChild(sheet);
-  });
+    console.log('4. Limpiando el panel izquierdo...');
+    await page.addStyleTag({
+      content: `
+        [data-hook="tickets-picker"], 
+        aside, 
+        [data-hook="checkout"],
+        [data-hook="invoice-breakdown"] { 
+          display: none !important; 
+        }
+      `
+    });
 
-  console.log('4. Capturando mapa...');
-  // Captura directa del modal recortando la cuadrícula
-  const seatingArea = page.locator('div:has(> canvas), div:has(> svg)').first();
+    console.log('5. Guardando snapshot...');
+    // Si encuentra el modal o diálogo, captura ese elemento; de lo contrario, captura la ventana
+    const modal = page.locator('div[role="dialog"], [aria-modal="true"]').first();
+    if (await modal.isVisible()) {
+      await modal.screenshot({ path: outputPath });
+      console.log('-> Captura recortada del modal guardada con éxito.');
+    } else {
+      await page.screenshot({ path: outputPath, fullPage: false });
+      console.log('-> Captura general guardada con éxito.');
+    }
 
-  if (await seatingArea.count() > 0) {
-    await seatingArea.screenshot({ path: outputPath });
-    console.log(`-> Mapa capturado en: ${outputPath}`);
-  } else {
-    const modal = page.locator('div[role="dialog"]').first();
-    await modal.screenshot({ path: outputPath });
-    console.log(`-> Modal capturado en: ${outputPath}`);
+  } catch (error) {
+    console.error('Aviso durante la ejecución:', error.message);
+    // Foto de emergencia para no botar error y poder ver en qué pantalla quedó el bot
+    await page.screenshot({ path: outputPath, fullPage: false });
+    console.log('-> Se generó captura de respaldo.');
+  } finally {
+    await browser.close();
+    console.log('Finalizado.');
   }
-
-  await browser.close();
-  console.log('Finalizado.');
 })();
