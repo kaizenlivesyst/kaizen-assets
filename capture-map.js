@@ -22,53 +22,61 @@ const path = require('path');
 
   const page = await context.newPage();
 
-  try {
-    console.log('1. Cargando ritstore.agency...');
-    await page.goto('https://www.ritstore.agency/es/event-details/sui-visual-kei-lights-lima', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    });
+  console.log('1. Cargando la web de R.I.T...');
+  await page.goto('https://www.ritstore.agency/es/event-details/sui-visual-kei-lights-lima', {
+    waitUntil: 'domcontentloaded',
+    timeout: 45000
+  });
 
-    console.log('2. Buscando y clickeando botón de entradas...');
-    // Clic forzado en cualquier botón o enlace que diga "entradas" o "Compra"
-    const btn = page.locator('button, a').filter({ hasText: /entradas|compra/i }).first();
-    await btn.waitFor({ state: 'visible', timeout: 15000 });
-    await btn.click({ force: true });
+  console.log('2. Bajando hacia el botón de entradas...');
+  const buyBtn = page.getByRole('button', { name: /compra tus entradas/i })
+    .or(page.locator('a, button').filter({ hasText: /compra tus entradas/i })).first();
 
-    // Tiempo prudente para que Wix abra el popup y pinte las butacas
-    console.log('3. Esperando renderizado de la sala...');
-    await page.waitForTimeout(7000);
+  // Scroll explícito hacia el botón para garantizar que esté dentro de la vista
+  await buyBtn.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(1000);
+  await buyBtn.click({ force: true });
+  console.log('-> Clic en "Compra tus entradas" ejecutado.');
 
-    console.log('4. Limpiando el panel izquierdo...');
-    await page.addStyleTag({
-      content: `
-        [data-hook="tickets-picker"], 
-        aside, 
-        [data-hook="checkout"],
-        [data-hook="invoice-breakdown"] { 
-          display: none !important; 
-        }
-      `
-    });
+  console.log('3. Esperando que el modal abra y renderice la sala...');
+  // Esperar a que el modal aparezca en el DOM
+  const modalLocator = page.locator('div[role="dialog"], [aria-modal="true"]').first();
+  await modalLocator.waitFor({ state: 'visible', timeout: 20000 });
 
-    console.log('5. Guardando snapshot...');
-    // Si encuentra el modal o diálogo, captura ese elemento; de lo contrario, captura la ventana
-    const modal = page.locator('div[role="dialog"], [aria-modal="true"]').first();
-    if (await modal.isVisible()) {
-      await modal.screenshot({ path: outputPath });
-      console.log('-> Captura recortada del modal guardada con éxito.');
-    } else {
-      await page.screenshot({ path: outputPath, fullPage: false });
-      console.log('-> Captura general guardada con éxito.');
-    }
+  // Margen de 6 segundos para que los microservicios de Wix dibujen los círculos
+  await page.waitForTimeout(6000);
 
-  } catch (error) {
-    console.error('Aviso durante la ejecución:', error.message);
-    // Foto de emergencia para no botar error y poder ver en qué pantalla quedó el bot
-    await page.screenshot({ path: outputPath, fullPage: false });
-    console.log('-> Se generó captura de respaldo.');
-  } finally {
-    await browser.close();
-    console.log('Finalizado.');
+  console.log('4. Ocultando columna izquierda y botones en BRL...');
+  await page.addStyleTag({
+    content: `
+      [data-hook="tickets-picker"],
+      aside,
+      [data-hook="checkout"],
+      [data-hook="invoice-breakdown"],
+      div[role="dialog"] > div:first-child:not(:last-child) {
+        display: none !important;
+      }
+      button:has-text("precios"),
+      button[aria-haspopup="listbox"],
+      [data-hook="dropdown-base-text"] {
+        display: none !important;
+      }
+    `
+  });
+
+  console.log('5. Capturando el plano del mapa...');
+  // Priorizar el lienzo del mapa dentro del diálogo
+  const seatingGrid = modalLocator.locator('div:has(> canvas), div:has(> svg)').first();
+
+  if (await seatingGrid.count() > 0 && await seatingGrid.isVisible()) {
+    await seatingGrid.screenshot({ path: outputPath });
+    console.log(`-> Éxito: Cuadrícula del mapa capturada en ${outputPath}`);
+  } else {
+    // Si no aísla el SVG, captura el modal completo ya sin la columna izquierda
+    await modalLocator.screenshot({ path: outputPath });
+    console.log(`-> Éxito: Modal limpio capturado en ${outputPath}`);
   }
+
+  await browser.close();
+  console.log('Finalizado.');
 })();
