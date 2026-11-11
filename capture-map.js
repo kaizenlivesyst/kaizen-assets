@@ -10,7 +10,7 @@ const path = require('path');
   }
   const outputPath = path.join(outputDir, 'sui-mapa.png');
 
-  // 2. Lanzar Chromium simulando un navegador real
+  // 2. Lanzar Chromium headless
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
@@ -24,56 +24,55 @@ const path = require('path');
 
   const page = await context.newPage();
 
-  console.log('1. Conectando con ritstore.agency (usando domcontentloaded)...');
-  // Usar domcontentloaded en lugar de networkidle para evitar bloqueos por telemetría de Wix
+  console.log('1. Conectando con ritstore.agency...');
   await page.goto('https://www.ritstore.agency/es/event-details/sui-visual-kei-lights-lima', {
     waitUntil: 'domcontentloaded',
     timeout: 45000
   });
 
-  console.log('2. Buscando botón "Compra tus entradas"...');
-  // Esperar a que el botón aparezca
-  const buyBtn = page.locator('button:has-text("Compra tus entradas"), a:has-text("Compra tus entradas"), text="Compra tus entradas"').first();
+  console.log('2. Abriendo el modal de butacas...');
+  const buyBtn = page.locator('text=/compra tus entradas/i').first();
   await buyBtn.waitFor({ state: 'visible', timeout: 30000 });
   await buyBtn.click();
-  console.log('-> Clic realizado con éxito.');
 
-  // Pausa técnica para que abra el modal y renderice los asientos
+  // Espera de 6s para asegurar que Wix termine de renderizar el plano
   console.log('3. Esperando que el modal dibuje las butacas...');
   await page.waitForTimeout(6000);
 
-  console.log('4. Ocultando columna izquierda y desplegable de precios...');
+  console.log('4. Limpiando la vista con CSS estándar...');
   await page.evaluate(() => {
-    // Ocultar barra lateral de carrito y checkout en BRL
-    const sidebars = document.querySelectorAll('[data-hook="tickets-picker"], aside');
-    sidebars.forEach(el => el.style.setProperty('display', 'none', 'important'));
-
-    // Ocultar desplegables de precios flotantes
-    const overlays = document.querySelectorAll('button:has-text("precios"), [data-hook="dropdown-base-text"]');
-    overlays.forEach(el => {
-      const parent = el.closest('div');
-      if (parent) parent.style.setProperty('display', 'none', 'important');
-    });
+    // Inyectar CSS que oculte la columna del carrito, el checkout y cualquier menú flotante
+    const style = document.createElement('style');
+    style.innerHTML = `
+      [data-hook="tickets-picker"],
+      aside,
+      [data-hook="checkout"],
+      [data-hook="dropdown-base-text"],
+      div[role="dialog"] > div:first-child:not(:last-child) {
+        display: none !important;
+      }
+      /* Ocultar botones o textos que contengan precios en BRL */
+      button[aria-haspopup="listbox"],
+      [data-hook="invoice-breakdown"] {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
   });
 
   console.log('5. Capturando el área del mapa...');
-  // Buscar el contenedor donde está el canvas/svg del mapa
+  // Selector nativo de Playwright para el lienzo del mapa
   const seatingGrid = page.locator('div:has(> canvas), div:has(> svg)').first();
 
   if (await seatingGrid.count() > 0) {
     await seatingGrid.screenshot({ path: outputPath });
-    console.log(`-> Captura guardada exitosamente en ${outputPath}`);
+    console.log(`-> Éxito: Captura guardada en ${outputPath}`);
   } else {
-    // Respaldo de seguridad
-    console.log('Aviso: Capturando diálogo completo...');
+    console.log('Aviso: Capturando diálogo modal...');
     const modal = page.locator('div[role="dialog"]').first();
-    if (await modal.count() > 0) {
-      await modal.screenshot({ path: outputPath });
-    } else {
-      await page.screenshot({ path: outputPath, fullPage: false });
-    }
+    await modal.screenshot({ path: outputPath });
   }
 
   await browser.close();
-  console.log('Proceso completado.');
+  console.log('Proceso finalizado.');
 })();
